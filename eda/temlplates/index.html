@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Student Performance Analyzer</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Student Performance Analyzer</h1>
+      <p class="muted">Upload dataset, then check a student's CIA, Attendance, Quiz, Project and predicted performance.</p>
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="flash">
+          {% for msg in messages %}
+            <div class="flash-msg">{{ msg }}</div>
+          {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+    </header>
+
+    <main>
+      <section class="card">
+        <h2>1. Upload dataset (CSV)</h2>
+        <form action="{{ url_for('upload') }}" method="post" enctype="multipart/form-data">
+          <input type="file" name="file" accept=".csv" required />
+          <button type="submit">Upload & Train Model</button>
+        </form>
+        <p class="hint">Required columns: <code>RollNo, CIA, Attendance, Quiz, Project, Performance</code></p>
+        {% if ready %}
+          <p class="ok">Model trained. Current R²: {{ r2 }}%</p>
+        {% endif %}
+      </section>
+
+      <section class="card">
+        <h2>2. Check student</h2>
+        <div class="form-row">
+          <label>Roll Number</label>
+          <input id="roll" placeholder="Enter RollNo (exact)" />
+        </div>
+        <div class="form-row">
+          <label>Chart Type</label>
+          <select id="chartType">
+            <option value="bar">Bar</option>
+            <option value="pie">Pie</option>
+            <option value="line">Line</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <button id="checkBtn">Get Student Performance</button>
+        </div>
+
+        <div id="resultArea" class="hidden">
+          <h3>Student Details</h3>
+          <div id="studentInfo"></div>
+
+          <h3>Visualization</h3>
+          <canvas id="studentChart" width="600" height="320"></canvas>
+
+          <h3>Suggestions</h3>
+          <ul id="suggestions"></ul>
+        </div>
+      </section>
+
+      <section class="card small">
+        <h3>Tips</h3>
+        <ul>
+          <li>If model R² is low, upload a richer dataset or more rows to improve accuracy.</li>
+          <li>Use exact RollNo string as in CSV (case-sensitive trimmed).</li>
+        </ul>
+      </section>
+    </main>
+
+    <footer>
+      <small>Built with Flask • RandomForestRegressor • Chart.js</small>
+    </footer>
+  </div>
+
+  <script>
+    const checkBtn = document.getElementById("checkBtn");
+    const resultArea = document.getElementById("resultArea");
+    const studentInfo = document.getElementById("studentInfo");
+    const suggestionsEl = document.getElementById("suggestions");
+    const chartCanvas = document.getElementById("studentChart");
+    let currentChart = null;
+
+    checkBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const roll = document.getElementById("roll").value.trim();
+      const chartType = document.getElementById("chartType").value;
+      if (!roll) { alert("Enter Roll Number"); return; }
+
+      // call backend
+      const resp = await fetch("/student", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roll })
+      });
+      const data = await resp.json();
+      if (!resp.ok) {
+        alert(data.message || "Error");
+        return;
+      }
+
+      // show info
+      resultArea.classList.remove("hidden");
+      studentInfo.innerHTML = `
+        <p><b>Roll:</b> ${data.roll}</p>
+        <p><b>CIA:</b> ${data.CIA}</p>
+        <p><b>Attendance:</b> ${data.Attendance}</p>
+        <p><b>Quiz:</b> ${data.Quiz}</p>
+        <p><b>Project:</b> ${data.Project}</p>
+        <p><b>Actual performance:</b> ${data.actual_performance.toFixed(2)}</p>
+        <p><b>Predicted performance:</b> ${data.predicted_performance.toFixed(2)} (${data.label})</p>
+        <p><b>Model R²:</b> ${data.r2.toFixed(2)}%</p>
+      `;
+
+      // suggestions
+      suggestionsEl.innerHTML = "";
+      data.suggestions.forEach(s => {
+        const li = document.createElement("li"); li.textContent = s; suggestionsEl.appendChild(li);
+      });
+
+      // chart data
+      const labels = ["CIA","Attendance","Quiz","Project","Predicted"];
+      const values = [data.CIA, data.Attendance, data.Quiz, data.Project, data.predicted_performance];
+
+      // create Chart.js chart
+      if (currentChart) currentChart.destroy();
+      currentChart = new Chart(chartCanvas.getContext("2d"), {
+        type: (chartType === "pie" ? "pie" : (chartType === "line" ? "line" : "bar")),
+        data: {
+          labels: labels,
+          datasets: [{
+            label: "Marks",
+            data: values,
+            backgroundColor: [
+              "rgba(54, 162, 235, 0.6)",
+              "rgba(255, 206, 86, 0.6)",
+              "rgba(75, 192, 192, 0.6)",
+              "rgba(255, 99, 132, 0.6)",
+              "rgba(153, 102, 255, 0.6)"
+            ],
+            borderColor: [
+              "rgba(54, 162, 235, 1)",
+              "rgba(255, 206, 86, 1)",
+              "rgba(75, 192, 192, 1)",
+              "rgba(255, 99, 132, 1)",
+              "rgba(153, 102, 255, 1)"
+            ],
+            borderWidth: 1
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: (chartType === "pie") ? {} : { y: { beginAtZero: true, max: Math.max(...values)*1.1 } }
+        }
+      });
+    });
+  </script>
+</body>
+</html>
